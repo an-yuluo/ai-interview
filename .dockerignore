@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+backend/
+node_modules/
+cloudflared.exe
+tunnel-guardian.sh
+*.md
+.vscode
+.idea
