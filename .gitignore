@@ -31,5 +31,8 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
+# Data (SQLite database)
+data/
+
 # Logs
 *.log

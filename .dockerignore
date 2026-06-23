@@ -5,6 +5,9 @@ backend/
 node_modules/
 cloudflared.exe
 tunnel-guardian.sh
-*.md
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+data/
 .vscode
 .idea
