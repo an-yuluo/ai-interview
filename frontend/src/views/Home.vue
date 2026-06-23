@@ -19,6 +19,13 @@
           <polyline points="12 5 19 12 12 19"/>
         </svg>
       </button>
+      <button class="btn btn-secondary btn-lg history-btn" @click="router.push('/history')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+        面试历史
+      </button>
     </section>
 
     <section class="features">
@@ -99,7 +106,7 @@ const steps = [
 <style scoped>
 .home-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 50%, #f8fafc 100%);
 }
 .top-nav {
   padding: 16px 24px;
@@ -117,24 +124,64 @@ const steps = [
   padding: 80px 20px 60px;
   max-width: 680px;
   margin: 0 auto;
+  position: relative;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(79,70,229,0.06) 0%, transparent 70%);
+  pointer-events: none;
+  animation: heroPulse 6s ease-in-out infinite;
+}
+@keyframes heroPulse {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.6; }
+  50% { transform: translateX(-50%) scale(1.1); opacity: 1; }
 }
 .hero-title {
   font-size: 44px;
   font-weight: 800;
   line-height: 1.2;
   margin-bottom: 16px;
+  position: relative;
 }
 .hero-highlight {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  background: linear-gradient(135deg, #4f46e5, #7c3aed, #4f46e5);
+  background-size: 200% auto;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  animation: gradientShift 4s ease-in-out infinite;
+}
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% center; }
+  50% { background-position: 100% center; }
 }
 .hero-desc {
   font-size: 17px;
   color: var(--text-secondary);
   margin-bottom: 32px;
   line-height: 1.6;
+}
+
+.btn-secondary {
+  background: var(--bg-card);
+  color: var(--color-primary);
+  border: 1.5px solid var(--color-primary);
+}
+.btn-secondary:hover {
+  background: var(--color-primary-light);
+}
+.history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .features {
@@ -150,15 +197,39 @@ const steps = [
   border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 24px;
-  transition: all 0.2s;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+.feature-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--color-primary-gradient);
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
 }
 .feature-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+  border-color: rgba(79, 70, 229, 0.2);
+}
+.feature-card:hover::after {
+  transform: scaleX(1);
 }
 .feature-icon {
   color: var(--color-primary);
   margin-bottom: 12px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-light);
+  border-radius: 12px;
 }
 .feature-card h3 {
   font-size: 16px;
@@ -186,6 +257,7 @@ const steps = [
   justify-content: center;
   gap: 16px;
   flex-wrap: wrap;
+  position: relative;
 }
 .flow-step {
   display: flex;
@@ -195,6 +267,11 @@ const steps = [
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 14px 20px;
+  transition: all 0.2s;
+}
+.flow-step:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
 }
 .step-num {
   width: 32px;

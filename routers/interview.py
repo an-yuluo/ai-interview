@@ -44,15 +44,32 @@ async def submit_answer(req: InterviewAnswerRequest):
     if not session:
         raise HTTPException(404, "面试会话不存在或已过期。")
 
+    # Markers to strip from streamed text
+    _MARKERS = ("[FOLLOW_UP]", "[NEW_QUESTION]")
+
     async def event_stream():
         try:
             async for chunk in interview_engine.stream_answer_response(req.session_id, req.answer):
-                yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
+                # Strip internal markers from streamed text
+                clean_chunk = chunk
+                for m in _MARKERS:
+                    clean_chunk = clean_chunk.replace(m, "")
+                if clean_chunk.strip():
+                    yield f"data: {json.dumps({'type': 'text', 'content': clean_chunk}, ensure_ascii=False)}\n\n"
 
-            # Check if interview ended
+            # Check if interview ended and if it was a follow-up
             updated_session = interview_engine.get_session(req.session_id)
-            ended = updated_session["ended"] if updated_session else True
-            yield f"data: {json.dumps({'type': 'done', 'ended': ended})}\n\n"
+            if updated_session:
+                ended = updated_session["ended"]
+                is_follow_up = updated_session.get("is_follow_up", False)
+                round_transition = updated_session.get("_round_transition", False)
+                next_round = updated_session.get("_next_round", "")
+            else:
+                ended = True
+                is_follow_up = False
+                round_transition = False
+                next_round = ""
+            yield f"data: {json.dumps({'type': 'done', 'ended': ended, 'is_follow_up': is_follow_up, 'round_transition': round_transition, 'next_round': next_round})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 
@@ -100,6 +117,28 @@ async def skip_question(req: InterviewAnswerRequest):
             updated_session = interview_engine.get_session(req.session_id)
             ended = updated_session["ended"] if updated_session else True
             yield f"data: {json.dumps({'type': 'done', 'ended': ended})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+@router.post("/next-round")
+async def start_next_round(req: InterviewAnswerRequest):
+    """Start the next round in multi-round mode (streams first question)."""
+    session = interview_engine.get_session(req.session_id)
+    if not session:
+        raise HTTPException(404, "面试会话不存在或已过期。")
+
+    async def event_stream():
+        try:
+            async for chunk in interview_engine.stream_next_round(req.session_id):
+                yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
 

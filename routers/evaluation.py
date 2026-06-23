@@ -3,6 +3,7 @@ from fastapi import APIRouter
 
 from models.schemas import EvaluationRequest, EvaluationResponse, EvaluationResult
 from services.evaluation_engine import generate_evaluation
+from services import history_service
 
 router = APIRouter(prefix="/api/evaluation", tags=["evaluation"])
 
@@ -25,6 +26,20 @@ async def generate_eval(req: EvaluationRequest):
             blind_spots=result.get("blind_spots", []),
             strengths=result.get("strengths", []),
         )
+
+        # Save to history
+        try:
+            conversation = [m.model_dump() for m in req.messages]
+            history_service.save_record(
+                resume=resume_dict,
+                config=config_dict,
+                evaluation=result,
+                conversation=conversation,
+                question_count=len([m for m in req.messages if m.role == "interviewer"]),
+            )
+        except Exception:
+            pass  # History save failure should not block evaluation
+
         return EvaluationResponse(success=True, data=eval_result)
 
     except Exception as e:

@@ -54,6 +54,8 @@ class InterviewConfig(BaseModel):
     difficulty: str = "mid"              # junior | mid | senior
     style: str = "gentle"               # strict | gentle | english
     custom_instructions: str = ""
+    multi_round_enabled: bool = False
+    multi_round_rounds: list[str] = Field(default_factory=list)  # e.g. ["tech_basic", "tech_advanced", "hr_behavioral"]
 
 
 class InterviewStartRequest(BaseModel):

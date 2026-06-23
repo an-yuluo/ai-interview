@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from routers import resume, interview, evaluation
+from routers import resume, interview, evaluation, history
 
 app = FastAPI(
     title="AI 模拟面试系统",
@@ -27,6 +27,7 @@ app.add_middleware(
 app.include_router(resume.router)
 app.include_router(interview.router)
 app.include_router(evaluation.router)
+app.include_router(history.router)
 
 
 @app.get("/api/health")

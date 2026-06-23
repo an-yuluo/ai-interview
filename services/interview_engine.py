@@ -18,6 +18,12 @@ from services.knowledge_loader import (
 # In-memory session storage (MVP — replace with Redis/DB for production)
 _sessions: dict[str, dict] = {}
 
+_ROUND_LABELS = {
+    "tech_basic": "初级技术面",
+    "tech_advanced": "高级架构面",
+    "hr_behavioral": "HR 行为面",
+}
+
 
 def _build_system_prompt(resume: dict, config: dict) -> str:
     """Build a rich system prompt using the knowledge base."""
@@ -115,6 +121,13 @@ def create_session(resume: dict, config: dict) -> str:
     session_id = str(uuid.uuid4())[:12]
     max_q = MAX_QUESTIONS.get(config.get("difficulty", "mid"), 8)
 
+    # Multi-round setup
+    multi_enabled = config.get("multi_round_enabled", False)
+    multi_rounds = config.get("multi_round_rounds", [])
+    if multi_enabled and multi_rounds:
+        # Use the first round in the list as starting round_type
+        config["round_type"] = multi_rounds[0]
+
     _sessions[session_id] = {
         "resume": resume,
         "config": config,
@@ -126,6 +139,14 @@ def create_session(resume: dict, config: dict) -> str:
         "current_phase": "opening",  # opening → project_dive → tech_fundamentals → coding → closing
         "conversation": [],
         "ended": False,
+        "follow_up_count": 0,  # follow-ups for current question (resets on new question)
+        "is_follow_up": False,  # whether the last AI response was a follow-up
+        "multi_round": {
+            "enabled": multi_enabled and len(multi_rounds) > 1,
+            "rounds": multi_rounds if multi_enabled else [],
+            "current_index": 0,
+            "round_conversations": [],  # stores conversation per completed round
+        },
     }
     return session_id
 
@@ -178,7 +199,11 @@ async def stream_first_question(session_id: str) -> AsyncIterator[str]:
 
 
 async def stream_answer_response(session_id: str, user_answer: str) -> AsyncIterator[str]:
-    """Process user's answer and stream the next question/follow-up."""
+    """Process user's answer and stream the next question/follow-up.
+    
+    Smart follow-up: AI decides whether to probe deeper or move on based on
+    answer quality. Follow-ups are capped at 2 per question.
+    """
     session = _sessions[session_id]
 
     # Record user's answer
@@ -193,6 +218,7 @@ async def stream_answer_response(session_id: str, user_answer: str) -> AsyncIter
     max_q = session["max_questions"]
     current_phase = session["current_phase"]
     round_type = session["config"].get("round_type", "tech_basic")
+    follow_ups = session["follow_up_count"]
 
     if q_num >= max_q:
         # Last question — wrap up
@@ -201,13 +227,30 @@ async def stream_answer_response(session_id: str, user_answer: str) -> AsyncIter
             f"请对回答做简短反馈，然后进入反问环节：'我这边的问题差不多了，你有什么想问我的吗？'\n"
             f"在回复末尾加上 [INTERVIEW_END] 标记。"
         )
+    elif follow_ups >= 2:
+        # Already followed up twice — must move to new question
+        phase_hint = _get_phase_hint(q_num, max_q, current_phase, round_type)
+        hint = (
+            f"这是候选人对第 {q_num} 题的补充回答（已追问 {follow_ups} 次）。\n"
+            f"{phase_hint}\n"
+            f"已经充分追问了，请用自然的过渡语提出下一个新问题。\n"
+            f"请在回复开头加上 [NEW_QUESTION] 标记。\n"
+            f"（进度：已问 {q_num}/{max_q} 题）"
+        )
     else:
-        # Determine phase transition hints
+        # Let AI decide: follow up or new question
         phase_hint = _get_phase_hint(q_num, max_q, current_phase, round_type)
         hint = (
             f"这是候选人对第 {q_num} 题的回答。\n"
-            f"{phase_hint}\n"
-            f"请根据回答质量决定是否追问（最多 1 次），然后用自然的过渡语进入下一题。\n"
+            f"{phase_hint}\n\n"
+            f"【追问决策】请根据回答质量判断是否需要追问：\n"
+            f"- 如果回答充分（有细节、有数据、有逻辑、有深度），直接出新题\n"
+            f"- 如果回答浅尝辄止、只说了表面概念没有展开、缺少具体例子或数据，追问一个具体细节\n"
+            f"- 追问应该自然、口语化，不要说'我来追问一下'\n"
+            f"- 当前已追问 {follow_ups} 次（最多 2 次），追问不算题目数\n\n"
+            f"请在回复开头加上标记：\n"
+            f"- [FOLLOW_UP] 表示这是追问（不计入题目数）\n"
+            f"- [NEW_QUESTION] 表示这是新的问题（计入题目数）\n"
             f"（进度：已问 {q_num}/{max_q} 题）"
         )
 
@@ -220,18 +263,83 @@ async def stream_answer_response(session_id: str, user_answer: str) -> AsyncIter
 
     session["messages"].append({"role": "assistant", "content": full_response})
 
-    if "[INTERVIEW_END]" in full_response:
+    # Determine if this was a follow-up or new question
+    is_follow_up = "[FOLLOW_UP]" in full_response and "[NEW_QUESTION]" not in full_response
+    is_interview_end = "[INTERVIEW_END]" in full_response
+
+    # Strip markers from the response before storing
+    clean_response = full_response
+    for marker in ("[FOLLOW_UP]", "[NEW_QUESTION]", "[INTERVIEW_END]"):
+        clean_response = clean_response.replace(marker, "").strip()
+
+    # Check multi-round transition
+    multi = session.get("multi_round", {})
+    round_transition = False
+    next_round = ""
+
+    if is_interview_end and multi.get("enabled"):
+        rounds = multi["rounds"]
+        next_idx = multi["current_index"] + 1
+        if next_idx < len(rounds):
+            # Transition to next round
+            round_transition = True
+            next_round = rounds[next_idx]
+            # Save current round conversation
+            multi["round_conversations"].append(list(session["conversation"]))
+            multi["current_index"] = next_idx
+
+            # Switch config to next round
+            session["config"]["round_type"] = next_round
+            # Rebuild system prompt for the new round
+            new_system = _build_system_prompt(session["resume"], session["config"])
+            # Replace system message and keep conversation context
+            session["messages"] = [
+                {"role": "system", "content": new_system},
+                {"role": "user", "content": f"这是多轮面试的第 {next_idx + 1} 轮（{_ROUND_LABELS.get(next_round, next_round)}）。上一轮已结束，请开始新一轮面试。保持面试官人设，做一个简短的自我介绍后开始提问。"},
+            ]
+            # Reset per-round state
+            session["question_count"] = 0
+            session["follow_up_count"] = 0
+            session["is_follow_up"] = False
+            session["current_phase"] = "opening"
+            session["ended"] = False
+            session["conversation"] = []
+            # max_questions stays the same (same difficulty)
+
+            session["conversation"].append({
+                "role": "interviewer",
+                "content": clean_response,
+                "question_number": session["question_count"],
+                "is_follow_up": False,
+            })
+        else:
+            # All rounds done — truly end
+            session["ended"] = True
+            session["is_follow_up"] = False
+    elif is_interview_end:
         session["ended"] = True
+        session["is_follow_up"] = False
+    elif is_follow_up:
+        session["follow_up_count"] += 1
+        session["is_follow_up"] = True
+        # question_count stays the same for follow-ups
     else:
         session["question_count"] = min(q_num + 1, max_q)
-        # Update phase
+        session["follow_up_count"] = 0  # Reset for new question
+        session["is_follow_up"] = False
         session["current_phase"] = _advance_phase(q_num + 1, max_q, round_type)
 
-    session["conversation"].append({
-        "role": "interviewer",
-        "content": full_response,
-        "question_number": session["question_count"],
-    })
+    if not round_transition:
+        session["conversation"].append({
+            "role": "interviewer",
+            "content": clean_response,
+            "question_number": session["question_count"],
+            "is_follow_up": is_follow_up,
+        })
+
+    # Store round_transition info for the router to read
+    session["_round_transition"] = round_transition
+    session["_next_round"] = next_round
 
 
 def _get_phase_hint(q_num: int, max_q: int, current_phase: str, round_type: str) -> str:
@@ -303,6 +411,39 @@ def _advance_phase(q_num: int, max_q: int, round_type: str) -> str:
             return "coding"
         else:
             return "closing"
+
+
+async def stream_next_round(session_id: str) -> AsyncIterator[str]:
+    """Stream the first question of the next round in multi-round mode."""
+    session = _sessions[session_id]
+    round_type = session["config"].get("round_type", "tech_basic")
+    multi = session.get("multi_round", {})
+    round_idx = multi.get("current_index", 0)
+    total_rounds = len(multi.get("rounds", []))
+
+    opening_instruction = (
+        f"请开始第 {round_idx + 1}/{total_rounds} 轮面试（{_ROUND_LABELS.get(round_type, round_type)}）。"
+        "按照你的面试官人设做一个简短的自我介绍，然后开始提问。保持口语化。"
+    )
+
+    session["messages"].append({"role": "user", "content": opening_instruction})
+
+    full_response = ""
+    async for chunk in stream_chat_completion(session["messages"]):
+        full_response += chunk
+        yield chunk
+
+    session["messages"].append({"role": "assistant", "content": full_response})
+    session["question_count"] = 1
+    session["current_phase"] = "opening"
+    session["conversation"].append({
+        "role": "interviewer",
+        "content": full_response,
+        "question_number": 1,
+    })
+    # Clear transition flag
+    session["_round_transition"] = False
+    session["_next_round"] = ""
 
 
 async def stream_standard_answer(session_id: str) -> AsyncIterator[str]:
@@ -397,11 +538,19 @@ async def stream_skip_question(session_id: str) -> AsyncIterator[str]:
     else:
         session["question_count"] = min(q_num + 1, max_q)
         session["current_phase"] = _advance_phase(q_num + 1, max_q, round_type)
+        session["follow_up_count"] = 0  # Reset follow-ups on skip
+        session["is_follow_up"] = False
+
+    # Strip markers from response
+    clean_response = full_response
+    for marker in ("[FOLLOW_UP]", "[NEW_QUESTION]", "[INTERVIEW_END]"):
+        clean_response = clean_response.replace(marker, "").strip()
 
     session["conversation"].append({
         "role": "interviewer",
-        "content": full_response,
+        "content": clean_response,
         "question_number": session["question_count"],
+        "is_follow_up": False,
     })
 
 

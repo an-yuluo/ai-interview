@@ -21,7 +21,37 @@
       <!-- Interview Round -->
       <div class="form-group">
         <label>面试轮次</label>
-        <div class="option-group">
+
+        <!-- Multi-round toggle -->
+        <div class="multi-round-toggle" @click="toggleMultiRound">
+          <div class="toggle-switch" :class="{ on: config.multi_round_enabled }">
+            <div class="toggle-knob"></div>
+          </div>
+          <span class="toggle-label">多轮连续面试模式</span>
+          <span class="toggle-hint">连续进行多轮面试，最终综合评分</span>
+        </div>
+
+        <!-- Multi-round: select rounds -->
+        <div v-if="config.multi_round_enabled" class="multi-round-select">
+          <p class="multi-round-hint">选择面试轮次（按顺序进行）：</p>
+          <div class="round-check-list">
+            <label
+              v-for="opt in roundOptions"
+              :key="opt.value"
+              class="round-check-item"
+              :class="{ checked: selectedRounds.includes(opt.value) }"
+            >
+              <input type="checkbox" :value="opt.value" v-model="selectedRounds" />
+              <span class="check-label">{{ opt.label }}</span>
+            </label>
+          </div>
+          <p class="multi-round-hint" v-if="selectedRounds.length >= 2">
+            已选 {{ selectedRounds.length }} 轮：{{ selectedRounds.map(r => roundLabelMap[r]).join(' → ') }}
+          </p>
+        </div>
+
+        <!-- Single round selection -->
+        <div v-else class="option-group">
           <button
             v-for="opt in roundOptions"
             :key="opt.value"
@@ -91,7 +121,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useResumeStore } from '../stores/resume'
 import { useInterviewStore } from '../stores/interview'
@@ -112,6 +142,22 @@ const roundOptions = [
   { value: 'hr_behavioral', label: 'HR 行为面' },
 ]
 
+const roundLabelMap = {
+  tech_basic: '初级技术面',
+  tech_advanced: '高级架构面',
+  hr_behavioral: 'HR 行为面',
+}
+
+const selectedRounds = ref(['tech_basic', 'tech_advanced', 'hr_behavioral'])
+
+function toggleMultiRound() {
+  config.multi_round_enabled = !config.multi_round_enabled
+  if (!config.multi_round_enabled) {
+    // Reset to single round mode
+    config.multi_round_rounds = []
+  }
+}
+
 const difficultyOptions = [
   { value: 'junior', label: '初级', desc: '5-6 题' },
   { value: 'mid', label: '中级', desc: '7-8 题' },
@@ -124,9 +170,17 @@ const styleOptions = [
   { value: 'english', icon: '🌍', label: '外企全英文', desc: '全程英文面试' },
 ]
 
-const canStart = computed(() => config.target_position.trim().length > 0)
+const canStart = computed(() => {
+  if (!config.target_position.trim()) return false
+  if (config.multi_round_enabled && selectedRounds.value.length < 2) return false
+  return true
+})
 
 async function startInterview() {
+  if (config.multi_round_enabled) {
+    config.multi_round_rounds = [...selectedRounds.value]
+    config.round_type = selectedRounds.value[0]
+  }
   await interviewStore.startInterview(resumeStore.data)
   router.push('/interview')
 }
@@ -208,5 +262,98 @@ async function startInterview() {
   margin-top: 40px;
   padding-top: 24px;
   border-top: 1px solid var(--border-color);
+}
+
+/* Multi-round toggle */
+.multi-round-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 12px;
+}
+.multi-round-toggle:hover {
+  border-color: var(--color-primary);
+}
+.toggle-switch {
+  width: 40px;
+  height: 22px;
+  background: #d1d5db;
+  border-radius: 11px;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-switch.on {
+  background: var(--color-primary);
+}
+.toggle-knob {
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s;
+}
+.toggle-switch.on .toggle-knob {
+  transform: translateX(18px);
+}
+.toggle-label {
+  font-weight: 500;
+  font-size: 15px;
+}
+.toggle-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Multi-round round selection */
+.multi-round-select {
+  padding: 12px 16px;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary);
+  border-radius: 10px;
+}
+.multi-round-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.round-check-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.round-check-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+.round-check-item:hover {
+  border-color: var(--color-primary);
+}
+.round-check-item.checked {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+.round-check-item input[type="checkbox"] {
+  accent-color: var(--color-primary);
 }
 </style>

@@ -15,6 +15,9 @@
           :total="interviewStore.maxQuestions"
           class="header-progress"
         />
+        <div v-if="interviewStore.totalRounds > 1" class="round-badge-header">
+          {{ interviewStore.currentRoundLabel }} ({{ interviewStore.currentRoundIndex + 1 }}/{{ interviewStore.totalRounds }})
+        </div>
       </div>
       <div class="header-actions">
         <button
@@ -43,13 +46,60 @@
       <button v-if="tts.isSpeaking.value" class="stop-speech-btn" @click="tts.stop()">停止朗读</button>
     </div>
 
+    <!-- Round transition overlay -->
+    <transition name="fade">
+      <div v-if="interviewStore.roundTransition" class="round-transition-overlay">
+        <div class="round-transition-card">
+          <div class="round-check-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+          </div>
+          <h2 class="round-transition-title">本轮面试结束</h2>
+          <p class="round-transition-desc">
+            即将进入下一轮：<strong>{{ interviewStore.nextRoundLabel }}</strong>
+          </p>
+          <div class="round-progress-info">
+            第 {{ interviewStore.currentRoundIndex }} / {{ interviewStore.totalRounds }} 轮
+          </div>
+          <button
+            class="btn btn-primary btn-lg"
+            :disabled="interviewStore.isStreaming"
+            @click="handleNextRound"
+          >
+            {{ interviewStore.isStreaming ? '准备中...' : '进入下一轮 →' }}
+          </button>
+        </div>
+      </div>
+    </transition>
+
+    <!-- Connection state banner -->
+    <div v-if="interviewStore.connectionState !== 'connected'" class="connection-banner" :class="interviewStore.connectionState">
+      <div class="connection-spinner"></div>
+      <template v-if="interviewStore.connectionState === 'reconnecting'">
+        连接中断，正在重连...
+      </template>
+      <template v-else>
+        网络连接已断开，请检查网络
+      </template>
+    </div>
+
     <!-- Chat Area -->
     <div class="chat-area" ref="chatArea">
       <div
         v-for="(msg, i) in interviewStore.messages"
         :key="i"
         class="message-wrapper"
+        :class="{ 'follow-up-msg': msg.is_follow_up }"
       >
+        <!-- Follow-up indicator -->
+        <div v-if="msg.is_follow_up" class="follow-up-badge">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+          追问
+        </div>
         <ChatBubble :message="msg" />
         <!-- Replay button for interviewer messages -->
         <button
@@ -355,6 +405,17 @@ async function handleSkipQuestion() {
   }
 }
 
+async function handleNextRound() {
+  try {
+    await interviewStore.startNextRound()
+    nextTick(() => {
+      inputBox.value?.focus()
+    })
+  } catch (e) {
+    alert('进入下一轮失败：' + e.message)
+  }
+}
+
 // Auto-scroll
 watch(
   () => [interviewStore.messages.length, interviewStore.currentStreamingText],
@@ -531,6 +592,23 @@ onUnmounted(() => {
   position: relative;
   max-width: 800px;
   margin: 0 auto;
+  animation: messageSlideIn 0.3s ease-out;
+}
+@keyframes messageSlideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Round badge in header */
+.round-badge-header {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  margin-top: 4px;
 }
 .replay-btn {
   position: absolute;
@@ -892,5 +970,116 @@ onUnmounted(() => {
   .chat-area { padding: 16px 20px; }
   .replay-btn { right: -4px; top: -4px; opacity: 1; }
   .voice-toggle-label { display: none; }
+}
+
+/* Follow-up indicator */
+.follow-up-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #7c3aed;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  padding: 2px 10px;
+  border-radius: 10px;
+  margin-left: 48px;
+  margin-bottom: -8px;
+  width: fit-content;
+  font-weight: 500;
+}
+.follow-up-msg {
+  position: relative;
+}
+.follow-up-msg::before {
+  content: '';
+  position: absolute;
+  left: 30px;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: #ddd6fe;
+  border-radius: 1px;
+}
+
+/* Connection state banner */
+.connection-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  font-size: 13px;
+  flex-shrink: 0;
+  justify-content: center;
+}
+.connection-banner.reconnecting {
+  background: #fefce8;
+  color: #92400e;
+  border-bottom: 1px solid #fde68a;
+}
+.connection-banner.disconnected {
+  background: #fef2f2;
+  color: #991b1b;
+  border-bottom: 1px solid #fecaca;
+}
+.connection-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Round transition overlay */
+.round-transition-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.round-transition-card {
+  background: var(--bg-card);
+  border-radius: 20px;
+  padding: 40px 48px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  max-width: 420px;
+}
+.round-check-icon {
+  color: #059669;
+  margin-bottom: 16px;
+}
+.round-transition-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.round-transition-desc {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+.round-transition-desc strong {
+  color: var(--color-primary);
+}
+.round-progress-info {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
 }
 </style>

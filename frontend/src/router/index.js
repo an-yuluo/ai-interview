@@ -26,6 +26,11 @@ const routes = [
     name: 'Results',
     component: () => import('../views/Results.vue'),
   },
+  {
+    path: '/history',
+    name: 'History',
+    component: () => import('../views/History.vue'),
+  },
 ]
 
 const router = createRouter({

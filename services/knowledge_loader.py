@@ -101,37 +101,43 @@ def get_question_bank(position: str, round_type: str) -> str:
     # Determine which question banks to load
     banks = []
 
+    # Resolve domain-specific bank
+    def _domain_bank():
+        if any(kw in pos_lower for kw in ["go", "golang"]):
+            return "question-bank-go.md"
+        if any(kw in pos_lower for kw in ["python", "django", "flask", "fastapi"]):
+            return "question-bank-python.md"
+        if any(kw in pos_lower for kw in ["测试", "qa", "test", "自动化测试", "质量保证"]):
+            return "question-bank-testing.md"
+        if any(kw in pos_lower for kw in ["运维", "ops", "sre", "k8s", "kubernetes", "devops"]):
+            return "question-bank-devops.md"
+        if any(kw in pos_lower for kw in ["数据", "data", "etl", "数仓", "大数据", "spark", "flink"]):
+            return "question-bank-data.md"
+        if any(kw in pos_lower for kw in ["移动", "mobile", "ios", "android", "flutter", "react native"]):
+            return "question-bank-mobile.md"
+        if any(kw in pos_lower for kw in ["前端", "frontend", "react", "vue", "web"]):
+            return "question-bank-frontend.md"
+        if any(kw in pos_lower for kw in ["后端", "backend", "java", "服务端"]):
+            return "question-bank-backend.md"
+        return "question-bank-backend.md"  # default fallback
+
     if round_type == "hr_behavioral":
         banks.append("question-bank-hr.md")
     elif round_type == "tech_advanced":
-        # Advanced: system design + domain-specific
         banks.append("question-bank-system-design.md")
-        if any(kw in pos_lower for kw in ["后端", "backend", "java", "go", "python", "服务端"]):
-            banks.append("question-bank-backend.md")
-        elif any(kw in pos_lower for kw in ["前端", "frontend", "react", "vue", "web"]):
-            banks.append("question-bank-frontend.md")
-        else:
-            banks.append("question-bank-backend.md")
+        banks.append(_domain_bank())
     else:
-        # Basic tech: fundamentals + algorithm
         banks.append("question-bank-algorithm.md")
-        if any(kw in pos_lower for kw in ["后端", "backend", "java", "go", "python", "服务端"]):
-            banks.append("question-bank-backend.md")
-        elif any(kw in pos_lower for kw in ["前端", "frontend", "react", "vue", "web"]):
-            banks.append("question-bank-frontend.md")
-        else:
-            banks.append("question-bank-backend.md")
+        banks.append(_domain_bank())
 
     # Load and concatenate
     parts = []
     for bank_file in banks:
         content = _read_md(bank_file)
         if content:
-            # Take a portion — not the entire bank (to save tokens)
-            # Extract the questions (skip very long content)
             lines = content.split("\n")
-            if len(lines) > 150:
-                lines = lines[:150]
+            if len(lines) > 250:
+                lines = lines[:250]
             parts.append("\n".join(lines))
 
     return "\n\n---\n\n".join(parts)
